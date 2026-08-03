@@ -11,6 +11,7 @@
 #include <vector>
 #include <mutex>
 #include <algorithm>
+#include <atomic>
 
 namespace matching_engine {
     class order_error : public std::runtime_error {
@@ -85,6 +86,12 @@ namespace matching_engine {
         std::map<int, std::list<Order>> sell;
         mutable std::mutex mtx;
         std::unordered_map<int, OrderLocation> order_idx; 
+        std::atomic<int> next_id{1};
+
+        int generate_id(){
+            return next_id.fetch_add(1);
+        }
+
         std::vector<Trade> match(Order& order) {
             std::vector<Trade> trades;
             if(order.side == Side::BUY) {
@@ -158,8 +165,7 @@ namespace matching_engine {
             return trades;
         }
     public:
-
-        std::vector<Trade> place_order(Order order) {
+        std::vector<Trade> place_order(Order& order) {
             std::unique_lock<std::mutex> lock(mtx);
             std::vector<Trade> result;
             if(order.price <= 0) {
@@ -168,6 +174,7 @@ namespace matching_engine {
             if(order.quantity <= 0) {
                 throw invalid_quantity_error("invalid quantity");
             }
+            order.id = generate_id();
             if(order.side == Side::BUY) {
                 result = match(order);
                 if(order.quantity > 0) {
@@ -188,8 +195,6 @@ namespace matching_engine {
             
             return result;
         }
-
-        
 
         bool cancel_order(const Order& order) {
             std::unique_lock<std::mutex> lock(mtx);
