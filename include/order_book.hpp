@@ -85,39 +85,7 @@ namespace matching_engine {
         std::map<int, std::list<Order>> sell;
         mutable std::mutex mtx;
         std::unordered_map<int, OrderLocation> order_idx; 
-    public:
-
-        std::vector<Trade> place_order(const Order& order) {
-            std::unique_lock<std::mutex> lock(mtx);
-            std::vector<Trade> result;
-            if(order.price <= 0) {
-                throw invalid_price_error("invalid price");
-            }
-            if(order.quantity <= 0) {
-                throw invalid_quantity_error("invalid quantity");
-            }
-            if(order.side == Side::BUY) {
-                result = match(order);
-                if(order.quantity > 0) {
-                    buy[order.price].push_back(order);
-                    auto it = std::prev(buy[order.price].end());
-                    order_idx[order.id] = OrderLocation{order.side, order.price, it};
-                }
-            }
-            else{
-                result = match(order);
-                if(order.quantity > 0) {
-                    sell[order.price].push_back(order);
-                    auto it = std::prev(sell[order.price].end());
-                    order_idx[order.id] = OrderLocation{order.side, order.price, it};
-                }
-                
-            }
-            
-            return result;
-        }
-
-        std::vector<Trade> match(Order order) {
+        std::vector<Trade> match(Order& order) {
             std::vector<Trade> trades;
             if(order.side == Side::BUY) {
                 while(order.quantity > 0) {
@@ -189,19 +157,60 @@ namespace matching_engine {
             }
             return trades;
         }
+    public:
+
+        std::vector<Trade> place_order(Order order) {
+            std::unique_lock<std::mutex> lock(mtx);
+            std::vector<Trade> result;
+            if(order.price <= 0) {
+                throw invalid_price_error("invalid price");
+            }
+            if(order.quantity <= 0) {
+                throw invalid_quantity_error("invalid quantity");
+            }
+            if(order.side == Side::BUY) {
+                result = match(order);
+                if(order.quantity > 0) {
+                    buy[order.price].push_back(order);
+                    auto it = std::prev(buy[order.price].end());
+                    order_idx[order.id] = OrderLocation{order.side, order.price, it};
+                }
+            }
+            else{
+                result = match(order);
+                if(order.quantity > 0) {
+                    sell[order.price].push_back(order);
+                    auto it = std::prev(sell[order.price].end());
+                    order_idx[order.id] = OrderLocation{order.side, order.price, it};
+                }
+                
+            }
+            
+            return result;
+        }
+
+        
 
         bool cancel_order(const Order& order) {
             std::unique_lock<std::mutex> lock(mtx);
-            int order_id = order.id;
-            if(order_idx.find(order_id) != order_idx.end()) {
-                auto order_it = order_idx[order_id].it;
-                if(order.side == Side::BUY){
-                    buy[order.price].erase(order_it);
+            auto idx = order_idx.find(order.id);
+            
+            if(idx != order_idx.end()) {
+                OrderLocation location = idx->second;
+                auto order_it = location.it;
+                if(location.side == Side::BUY){
+                    buy[location.price].erase(order_it);
+                    if(buy[location.price].empty()){
+                        buy.erase(location.price);
+                    }
                 }
                 else {
-                    sell[order.price].erase(order_it);
+                    sell[location.price].erase(order_it);
+                    if(sell[location.price].empty()){
+                        sell.erase(location.price);
+                    }
                 }
-                order_idx.erase(order_id);
+                order_idx.erase(idx);
                 return true;
             }
             return false;
@@ -214,7 +223,7 @@ namespace matching_engine {
                 DepthLevel dl;
                 dl.quantity = 0;
                 dl.price = buy_.first;
-                for(Order& ord : buy_.second) {
+                for(const Order& ord : buy_.second) {
                     dl.quantity += ord.quantity;
                 }
                 result.bids.push_back(dl);
