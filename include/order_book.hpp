@@ -12,6 +12,8 @@
 #include <mutex>
 #include <algorithm>
 #include <atomic>
+#include <queue>
+#include <condition_variable>
 
 namespace matching_engine {
     class order_error : public std::runtime_error {
@@ -87,6 +89,9 @@ namespace matching_engine {
         mutable std::mutex mtx;
         std::unordered_map<int, OrderLocation> order_idx; 
         std::atomic<int> next_id{1};
+        std::queue<Trade> trade_queue;
+        std::condition_variable trade_cv;
+        //mutable std::mutex cv_mtx;
 
         int generate_id(){
             return next_id.fetch_add(1);
@@ -102,11 +107,17 @@ namespace matching_engine {
                             Order& oldest = it->second.front();
                             if(order.trader == oldest.trader) {
                                 throw self_trade_error("self trade");
+                                // KNOWN ISSUE: implement self-trade prevention.
+                                // Current behavior: self-trade throws an exception after possible partial
+                                // book modifications, which violates exception safety.
+                                // Need either rollback changes or skip own orders during matching.
                             }
                             int trade_qty = std::min(oldest.quantity, order.quantity);
                             int trade_price = it->first;
                             Trade trade = {oldest.trader, oldest.id, order.trader, order.id, trade_price, trade_qty, std::chrono::system_clock::now()};
                             trades.push_back(trade);
+                            trade_queue.push(trade);
+                            trade_cv.notify_one();
                             order.quantity -= trade_qty;
                             oldest.quantity -= trade_qty;
                             if(oldest.quantity == 0) {
@@ -136,11 +147,17 @@ namespace matching_engine {
                             Order& oldest = it->second.front();
                             if(order.trader == oldest.trader) {
                                 throw self_trade_error("self trade");
+                                // KNOWN ISSUE: implement self-trade prevention.
+                                // Current behavior: self-trade throws an exception after possible partial
+                                // book modifications, which violates exception safety.
+                                // Need either rollback changes or skip own orders during matching.
                             }
                             int trade_qty = std::min(oldest.quantity, order.quantity);
                             int trade_price = it->first;
                             Trade trade = {oldest.trader, oldest.id, order.trader, order.id, trade_price, trade_qty, std::chrono::system_clock::now()};
                             trades.push_back(trade);
+                            trade_queue.push(trade);
+                            trade_cv.notify_one();
                             order.quantity -= trade_qty;
                             oldest.quantity -= trade_qty;
                             if(oldest.quantity == 0) {
@@ -163,6 +180,13 @@ namespace matching_engine {
                 }
             }
             return trades;
+        }
+        Trade wait_next_trade() {
+            std::unique_lock<std::mutex> lock(mtx);
+            trade_cv.wait(lock, [this]{return !trade_queue.empty()});
+            Trade result = trade_queue.front();
+            trade_queue.pop();
+            return result;
         }
     public:
         std::vector<Trade> place_order(Order& order) {
@@ -240,7 +264,7 @@ namespace matching_engine {
                 DepthLevel dl;
                 dl.quantity = 0;
                 dl.price = sell_.first;
-                for(Order& ord : sell_.second) {
+                for(const Order& ord : sell_.second) {
                     dl.quantity += ord.quantity;
                 }
                 result.asks.push_back(dl);
