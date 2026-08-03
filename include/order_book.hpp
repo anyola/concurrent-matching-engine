@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <vector>
 #include <mutex>
+#include <algorithm>
 
 namespace matching_engine {
     class order_error : public std::runtime_error {
@@ -89,19 +90,106 @@ namespace matching_engine {
         std::vector<Trade> place_order(const Order& order) {
             std::unique_lock<std::mutex> lock(mtx);
             std::vector<Trade> result;
+            if(order.price <= 0) {
+                throw invalid_price_error("invalid price");
+            }
+            if(order.quantity <= 0) {
+                throw invalid_quantity_error("invalid quantity");
+            }
             if(order.side == Side::BUY) {
-                buy[order.price].push_back(order);
-                auto it = std::prev(buy[order.price].end());
-                order_idx[order.id] = OrderLocation{order.side, order.price, it};
+                result = match(order);
+                if(order.quantity > 0) {
+                    buy[order.price].push_back(order);
+                    auto it = std::prev(buy[order.price].end());
+                    order_idx[order.id] = OrderLocation{order.side, order.price, it};
+                }
             }
             else{
-                sell[order.price].push_back(order);
-                auto it = std::prev(sell[order.price].end());
-                order_idx[order.id] = OrderLocation{order.side, order.price, it};
+                result = match(order);
+                if(order.quantity > 0) {
+                    sell[order.price].push_back(order);
+                    auto it = std::prev(sell[order.price].end());
+                    order_idx[order.id] = OrderLocation{order.side, order.price, it};
+                }
+                
             }
             
             return result;
         }
+
+        std::vector<Trade> match(Order order) {
+            std::vector<Trade> trades;
+            if(order.side == Side::BUY) {
+                while(order.quantity > 0) {
+                    if(!sell.empty()){
+                        auto it = sell.begin();
+                        if(it->first <= order.price) {
+                            Order& oldest = it->second.front();
+                            if(order.trader == oldest.trader) {
+                                throw self_trade_error("self trade");
+                            }
+                            int trade_qty = std::min(oldest.quantity, order.quantity);
+                            int trade_price = it->first;
+                            Trade trade = {oldest.trader, oldest.id, order.trader, order.id, trade_price, trade_qty, std::chrono::system_clock::now()};
+                            trades.push_back(trade);
+                            order.quantity -= trade_qty;
+                            oldest.quantity -= trade_qty;
+                            if(oldest.quantity == 0) {
+                                int maker_id = oldest.id;
+                                it->second.erase(it->second.begin());
+                                if(it->second.empty()) {
+                                    sell.erase(it);
+                                    order_idx.erase(maker_id);  
+                                }
+                            }
+                        }
+                        else {
+                            break;
+                        }
+                    }
+                    else {
+                        break;
+                    }
+                    
+                }
+            }
+            else {
+                while(order.quantity > 0) {
+                    if(!buy.empty()){
+                        auto it = buy.begin();
+                        if(it->first >= order.price) {
+                            Order& oldest = it->second.front();
+                            if(order.trader == oldest.trader) {
+                                throw self_trade_error("self trade");
+                            }
+                            int trade_qty = std::min(oldest.quantity, order.quantity);
+                            int trade_price = it->first;
+                            Trade trade = {oldest.trader, oldest.id, order.trader, order.id, trade_price, trade_qty, std::chrono::system_clock::now()};
+                            trades.push_back(trade);
+                            order.quantity -= trade_qty;
+                            oldest.quantity -= trade_qty;
+                            if(oldest.quantity == 0) {
+                                int maker_id = oldest.id;
+                                it->second.erase(it->second.begin());
+                                if(it->second.empty()) {
+                                    buy.erase(it);
+                                    order_idx.erase(maker_id);  
+                                }
+                            }
+                        }
+                        else {
+                            break;
+                        }
+                    }
+                    else {
+                        break;
+                    }
+                    
+                }
+            }
+            return trades;
+        }
+
         bool cancel_order(const Order& order) {
             std::unique_lock<std::mutex> lock(mtx);
             int order_id = order.id;
@@ -151,8 +239,5 @@ namespace matching_engine {
         }
     };
 }
-
-
-
 
 #endif
