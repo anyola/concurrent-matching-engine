@@ -107,7 +107,7 @@ namespace matching_engine {
             std::vector<Trade> trades;
             if(order.side == Side::BUY) {
                 for(auto level_it = sell.begin(); level_it != sell.end();) {
-                    if(level_it->first <= order.price) {
+                    if(order.type == OrderType::MARKET || level_it->first <= order.price) {
                         for(auto order_it = level_it->second.begin(); order_it != level_it->second.end();) {
                             if(order.quantity == 0) {
                                 break;
@@ -152,7 +152,7 @@ namespace matching_engine {
             }
             else {
                 for(auto level_it = buy.begin(); level_it != buy.end();) {
-                    if(level_it->first >= order.price) {
+                    if(order.type == OrderType::MARKET || level_it->first >= order.price) {
                         for(auto order_it = level_it->second.begin(); order_it != level_it->second.end();) {
                             if(order.quantity == 0) {
                                 break;
@@ -202,7 +202,7 @@ namespace matching_engine {
         std::vector<Trade> place_order(Order& order) {
             std::unique_lock<std::mutex> lock(mtx);
             std::vector<Trade> result;
-            if(order.price <= 0) {
+            if(order.type == OrderType::LIMIT && order.price <= 0) {
                 throw invalid_price_error("invalid price");
             }
             if(order.quantity <= 0) {
@@ -211,7 +211,7 @@ namespace matching_engine {
             order.id = generate_id();
             if(order.side == Side::BUY) {
                 result = match(order);
-                if(order.quantity > 0) {
+                if(order.quantity > 0 && order.type == OrderType::LIMIT) {
                     buy[order.price].push_back(order);
                     auto it = std::prev(buy[order.price].end());
                     order_idx[order.id] = OrderLocation{order.side, order.price, it};
@@ -219,7 +219,7 @@ namespace matching_engine {
             }
             else{
                 result = match(order);
-                if(order.quantity > 0) {
+                if(order.quantity > 0 && order.type == OrderType::LIMIT) {
                     sell[order.price].push_back(order);
                     auto it = std::prev(sell[order.price].end());
                     order_idx[order.id] = OrderLocation{order.side, order.price, it};
