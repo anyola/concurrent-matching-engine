@@ -82,16 +82,18 @@ namespace matching_engine {
         std::list<Order>::iterator it;
     };
 
+    class TradeFeed;
+
     class OrderBook {
     private:
+        friend class TradeFeed;
         std::map<int, std::list<Order>, std::greater<int>> buy;
         std::map<int, std::list<Order>> sell;
         mutable std::mutex mtx;
         std::unordered_map<int, OrderLocation> order_idx; 
         std::atomic<int> next_id{1};
-        std::queue<Trade> trade_queue;
+        std::vector<Trade> trade_log;
         std::condition_variable trade_cv;
-        //mutable std::mutex cv_mtx;
 
         int generate_id(){
             return next_id.fetch_add(1);
@@ -116,8 +118,8 @@ namespace matching_engine {
                             int trade_price = it->first;
                             Trade trade = {oldest.trader, oldest.id, order.trader, order.id, trade_price, trade_qty, std::chrono::system_clock::now()};
                             trades.push_back(trade);
-                            trade_queue.push(trade);
-                            trade_cv.notify_one();
+                            trade_log.push_back(trade);
+                            trade_cv.notify_all();
                             order.quantity -= trade_qty;
                             oldest.quantity -= trade_qty;
                             if(oldest.quantity == 0) {
@@ -156,8 +158,8 @@ namespace matching_engine {
                             int trade_price = it->first;
                             Trade trade = {oldest.trader, oldest.id, order.trader, order.id, trade_price, trade_qty, std::chrono::system_clock::now()};
                             trades.push_back(trade);
-                            trade_queue.push(trade);
-                            trade_cv.notify_one();
+                            trade_log.push_back(trade);
+                            trade_cv.notify_all();
                             order.quantity -= trade_qty;
                             oldest.quantity -= trade_qty;
                             if(oldest.quantity == 0) {
@@ -181,13 +183,7 @@ namespace matching_engine {
             }
             return trades;
         }
-        Trade wait_next_trade() {
-            std::unique_lock<std::mutex> lock(mtx);
-            trade_cv.wait(lock, [this]{return !trade_queue.empty()});
-            Trade result = trade_queue.front();
-            trade_queue.pop();
-            return result;
-        }
+        
     public:
         std::vector<Trade> place_order(Order& order) {
             std::unique_lock<std::mutex> lock(mtx);
@@ -275,7 +271,27 @@ namespace matching_engine {
             
             return result;
         }
+        TradeFeed subscribe() {
+            std::unique_lock<std::mutex> lock(mtx);
+            TradeFeed result = {*this, trade_log.size()};
+            return result;
+        }
     };
+
+    class TradeFeed {
+        OrderBook& book;
+        std::size_t next_trade;
+    public:
+        TradeFeed(OrderBook& b, std::size_t nt) : book(b), next_trade(nt) {}
+        Trade wait_next_trade() {
+            std::unique_lock<std::mutex> lock(book.mtx);
+            book.trade_cv.wait(lock, [this]{return next_trade < book.trade_log.size();});
+            Trade result = book.trade_log[next_trade];
+            next_trade++;
+            return result;
+        }
+    };
+
 }
 
 #endif
