@@ -34,6 +34,10 @@ namespace matching_engine {
     public:
         explicit self_trade_error(const std::string& message) : order_error(message) {}
     };
+    class invalid_name : public order_error {
+    public:
+        explicit invalid_name(const std::string& message) : order_error(message) {}
+    };
 
 
 
@@ -289,6 +293,28 @@ namespace matching_engine {
             Trade result = book.trade_log[next_trade];
             next_trade++;
             return result;
+        }
+    };
+
+    class Exchange {
+        std::mutex book_mutex;
+        std::unordered_map<std::string, std::unique_ptr<OrderBook>> book_map;
+    public:
+        OrderBook& get_or_create_book(const std::string& symbol) {
+            std::unique_lock<std::mutex> lock(book_mutex);
+            if(!symbol.empty()){
+                auto it = book_map.find(symbol);
+                if(it != book_map.end()) {
+                    return *(it->second.get());
+                }
+                else{
+                    book_map[symbol] = std::make_unique<OrderBook>();
+                    return *book_map[symbol].get();
+                }
+            }
+            else {
+                throw invalid_name("empty name");
+            }
         }
     };
 
