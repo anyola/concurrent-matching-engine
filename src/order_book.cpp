@@ -5,12 +5,6 @@
 
 namespace matching_engine {
 
-    order_error::order_error(const std::string& message) : std::runtime_error(message) {}
-
-    invalid_price_error::invalid_price_error(const std::string& message) : order_error(message) {}
-    invalid_quantity_error::invalid_quantity_error(const std::string& message) : order_error(message) {}
-    invalid_name::invalid_name(const std::string& message) : order_error(message) {}
-
     int OrderBook::generate_id() {
         return next_id.fetch_add(1);
     }
@@ -240,4 +234,5 @@ namespace matching_engine {
             throw invalid_name("empty name");
         }
     }
+
 }
