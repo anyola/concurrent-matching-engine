@@ -47,14 +47,14 @@ namespace matching_engine {
                             }
                         }
                     }
-                    if(order.quantity == 0) {
-                        break;
-                    }
                     if(level_it->second.empty()) {
                         level_it =sell.erase(level_it);
                     }
                     else{
                         level_it++;
+                    }
+                    if(order.quantity == 0) {
+                        break;
                     }
                 }
                 else {
