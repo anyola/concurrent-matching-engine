@@ -29,17 +29,10 @@ namespace matching_engine {
     public:
         explicit invalid_quantity_error(const std::string& message) : order_error(message) {}
     };
-
-    class self_trade_error : public order_error {
-    public:
-        explicit self_trade_error(const std::string& message) : order_error(message) {}
-    };
     class invalid_name : public order_error {
     public:
         explicit invalid_name(const std::string& message) : order_error(message) {}
     };
-
-
 
     enum class Side {
         BUY,
@@ -84,6 +77,12 @@ namespace matching_engine {
         Side side;
         int price;
         std::list<Order>::iterator it;
+    };
+
+    struct PlaceResult {
+        int order_id;
+        std::vector<Trade> trades;
+        int remaining_quantity;
     };
 
     class TradeFeed;
@@ -199,9 +198,11 @@ namespace matching_engine {
         }
 
     public:
-        std::vector<Trade> place_order(Order& order) {
+        PlaceResult place_order(Order order) {
             std::unique_lock<std::mutex> lock(mtx);
             std::vector<Trade> result;
+            int initial = order.quantity;
+            int remaining = 0;
             if(order.type == OrderType::LIMIT && order.price <= 0) {
                 throw invalid_price_error("invalid price");
             }
@@ -211,6 +212,11 @@ namespace matching_engine {
             order.id = generate_id();
             if(order.side == Side::BUY) {
                 result = match(order);
+                int executed = 0;
+                for(const Trade& t : result) {
+                    executed += t.quantity;
+                }
+                remaining = initial - executed;
                 if(order.quantity > 0 && order.type == OrderType::LIMIT) {
                     buy[order.price].push_back(order);
                     auto it = std::prev(buy[order.price].end());
@@ -219,18 +225,23 @@ namespace matching_engine {
             }
             else{
                 result = match(order);
+                int executed = 0;
+                for(const Trade& t : result) {
+                    executed += t.quantity;
+                }
+                remaining = initial - executed;
                 if(order.quantity > 0 && order.type == OrderType::LIMIT) {
                     sell[order.price].push_back(order);
                     auto it = std::prev(sell[order.price].end());
                     order_idx[order.id] = OrderLocation{order.side, order.price, it};
                 }   
             }
-            return result;
+            return {order.id, result, remaining};
         }
 
-        bool cancel_order(const Order& order) {
+        bool cancel_order(int order_id) {
             std::unique_lock<std::mutex> lock(mtx);
-            auto idx = order_idx.find(order.id);
+            auto idx = order_idx.find(order_id);
             
             if(idx != order_idx.end()) {
                 OrderLocation location = idx->second;
