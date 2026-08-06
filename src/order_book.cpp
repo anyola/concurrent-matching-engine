@@ -175,7 +175,7 @@ namespace matching_engine {
         Depth result;
 
         for(std::pair<const int, std::list<Order>>& buy_ : buy) {
-            DepthLevel dl;
+            DepthLevel dl{};
             dl.quantity = 0;
             dl.price = buy_.first;
             for(const Order& ord : buy_.second) {
@@ -187,7 +187,7 @@ namespace matching_engine {
             }
         }
         for(std::pair<const int, std::list<Order>>& sell_ : sell) {
-            DepthLevel dl;
+            DepthLevel dl{};
             dl.quantity = 0;
             dl.price = sell_.first;
             for(const Order& ord : sell_.second) {
