@@ -1,0 +1,19 @@
+#ifndef SESSION_HPP
+#define SESSION_HPP
+
+#include <boost/asio.hpp>
+
+namespace engine_server {
+    class Session : public std::enable_shared_from_this<Session>{
+    public:
+        Session(boost::asio::ip::tcp::socket&& socket_);
+
+        void start();
+    private:
+        boost::asio::ip::tcp::socket socket;
+        boost::asio::streambuf buffer;
+        void read();
+    }
+}
+
+#endif
