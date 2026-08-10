@@ -19,10 +19,10 @@ namespace engine_server {
                 if(ec) {
                     return;
                 }
-                std::istream stream(&buffer);
+                std::istream stream(&self->buffer);
                 std::string message;
                 std::getline(stream, message);
-                std::cout << "Received:" << message << '\n';
+                std::cout << "Received: " << message << '\n';
                 self->read();
             }
         );

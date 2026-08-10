@@ -13,7 +13,7 @@ namespace engine_server {
         boost::asio::ip::tcp::socket socket;
         boost::asio::streambuf buffer;
         void read();
-    }
+    };
 }
 
 #endif
