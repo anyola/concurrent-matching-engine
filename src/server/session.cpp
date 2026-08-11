@@ -23,6 +23,20 @@ namespace engine_server {
                 std::string message;
                 std::getline(stream, message);
                 std::cout << "Received: " << message << '\n';
+                self->response = message + '\n';
+                self->write();
+            }
+        );
+    }
+    void Session::write() {
+        auto self = shared_from_this();
+        boost::asio::async_write(
+            socket,
+            boost::asio::buffer(response),
+            [self](boost::system::error_code ec, std::size_t bytes) {
+                if(ec) {
+                    return;
+                }
                 self->read();
             }
         );

@@ -12,7 +12,9 @@ namespace engine_server {
     private:
         boost::asio::ip::tcp::socket socket;
         boost::asio::streambuf buffer;
+        std::string response;
         void read();
+        void write();
     };
 }
 
