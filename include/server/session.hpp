@@ -2,6 +2,8 @@
 #define SESSION_HPP
 
 #include <boost/asio.hpp>
+#include <memory>
+#include <string>
 
 namespace engine_server {
     class Session : public std::enable_shared_from_this<Session>{
@@ -15,6 +17,8 @@ namespace engine_server {
         std::string response;
         void read();
         void write();
+        bool handshake_done;
+        std::string trader;
     };
 }
 

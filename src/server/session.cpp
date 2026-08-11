@@ -5,7 +5,9 @@
 #include "server/session.hpp"
 
 namespace engine_server {
-    Session::Session(boost::asio::ip::tcp::socket&& socket_) : socket(std::move(socket_)) {}
+    Session::Session(boost::asio::ip::tcp::socket&& socket_) : socket(std::move(socket_)) {
+        handshake_done = false;
+    }
     void Session::start() {
         read();
     }
@@ -23,8 +25,25 @@ namespace engine_server {
                 std::string message;
                 std::getline(stream, message);
                 std::cout << "Received: " << message << '\n';
-                self->response = message + '\n';
-                self->write();
+                if(!self->handshake_done) {
+                    std::string name = "";
+                    std::size_t space = message.find(' ');
+                    if(space == std::string::npos) {
+                        name = "";
+                    }
+                    else {
+                        name = message.substr(space + 1);
+                    }
+                    self->handshake_done = true;
+                    self->trader = name;
+                    self->response = "Welcome "  + name + '\n';
+                    self->write();
+                }
+                else{
+                    self->response = message + '\n';
+                    self->write();
+                }
+                
             }
         );
     }
