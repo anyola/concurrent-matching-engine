@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <utility>
+#include <nlohmann/json.hpp>
 
 #include "server/session.hpp"
 
@@ -26,18 +27,18 @@ namespace engine_server {
                 std::getline(stream, message);
                 std::cout << "Received: " << message << '\n';
                 if(!self->handshake_done) {
-                    std::string name = "";
-                    std::size_t space = message.find(' ');
-                    if(space == std::string::npos) {
-                        name = "";
+                    nlohmann::json request = nlohmann::json::parse(message);
+                    std::string type =  request["type"];
+                    std::string trader = request["trader"];
+                    if(type == "hello") {
+                        self->handshake_done = true;
+                        self->trader = trader;
+                        nlohmann::json response;
+                        response["type"] = "welcome";
+                        response["trader"] = self->trader;
+                        self->response = response.dump() + '\n';
+                        self->write();
                     }
-                    else {
-                        name = message.substr(space + 1);
-                    }
-                    self->handshake_done = true;
-                    self->trader = name;
-                    self->response = "Welcome "  + name + '\n';
-                    self->write();
                 }
                 else{
                     self->response = message + '\n';
