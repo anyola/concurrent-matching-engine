@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <utility>
+#include <exception>
 #include <nlohmann/json.hpp>
 
 #include "server/session.hpp"
@@ -27,24 +28,33 @@ namespace engine_server {
                 std::string message;
                 std::getline(stream, message);
                 std::cout << "Received: " << message << '\n';
-                if(!self->handshake_done) {
-                    nlohmann::json request = nlohmann::json::parse(message);
-                    std::string type =  request["type"];
-                    std::string trader = request["trader"];
-                    if(type == "hello") {
-                        self->handshake_done = true;
-                        self->trader = trader;
-                        nlohmann::json response;
-                        response["type"] = "welcome";
-                        response["trader"] = self->trader;
+                try{
+                    if(!self->handshake_done) {
+                        nlohmann::json request = nlohmann::json::parse(message);
+                        std::string type =  request["type"];
+                        std::string trader = request["trader"];
+                        if(type == "hello") {
+                            self->handshake_done = true;
+                            self->trader = trader;
+                            nlohmann::json response;
+                            response["type"] = "welcome";
+                            response["trader"] = self->trader;
+                            self->response = response.dump() + '\n';
+                            self->protocol = std::make_unique<Protocol>(self->order_book, self->trader);
+                            self->write();
+                        }
+                    }
+                    else{
+                        nlohmann::json request = nlohmann::json::parse(message);
+                        nlohmann::json response = self->protocol->process(request);
                         self->response = response.dump() + '\n';
-                        self->protocol = std::make_unique<Protocol>(self->order_book, self->trader);
                         self->write();
                     }
                 }
-                else{
-                    nlohmann::json request = nlohmann::json::parse(message);
-                    nlohmann::json response = self->protocol->process(request);
+                catch(const std::exception& e) {
+                    nlohmann::json response;
+                    response["type"] = "error";
+                    response["message"] = e.what();
                     self->response = response.dump() + '\n';
                     self->write();
                 }

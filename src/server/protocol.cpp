@@ -105,7 +105,7 @@ namespace engine_server {
             } 
             case CommandType::Unknown: {
                 nlohmann::json response;
-                response["type"] = "unknown";
+                response["type"] = "error";
                 response["message"] = "unknown command";
                 return response;
             }
