@@ -17,25 +17,25 @@ namespace engine_server {
         }
     }
 
-    Protocol::Protocol(OrderBook& order_book_, const std::string& trader_) : order_book(order_book_), trader(trader_) {} 
+    Protocol::Protocol(matching_engine::OrderBook& order_book_, const std::string& trader_) : order_book(order_book_), trader(trader_) {} 
     
-    Side parse_side(const std::string& side) {
+    matching_engine::Side parse_side(const std::string& side) {
         if(side == "buy") {
-            return Side::BUY;
+            return matching_engine::Side::BUY;
         }
         else if (side == "sell"){
-            return Side::SELL;
+            return matching_engine::Side::SELL;
         }
         else {
             throw std::runtime_error("invalid side");
         }
     }
-    OrderType parse_order_type(const std::string& order_type) {
+    matching_engine::OrderType parse_order_type(const std::string& order_type) {
         if(order_type == "limit") {
-            return OrderType::LIMIT;
+            return matching_engine::OrderType::LIMIT;
         }
         else if(order_type == "market"){
-            return OrderType::MARKET;
+            return matching_engine::OrderType::MARKET;
         }
         else {
             throw std::runtime_error("invalid order type");
@@ -47,13 +47,13 @@ namespace engine_server {
         CommandType command = parse_command_type(type);
         switch(command) {
             case CommandType::PlaceOrder: {
-                Order order;
+                matching_engine::Order order;
                 order.price = request["price"];
                 order.quantity = request["quantity"];
                 order.trader = trader;
                 order.side = parse_side(request["side"]);
                 order.type = parse_order_type(request["order_type"]);
-                PlaceResult result  = order_book.place_order(order);
+                matching_engine::PlaceResult result  = order_book.place_order(order);
                 nlohmann::json response;
                 response["type"] = "order_placed";
                 response["order_id"] = result.order_id;
@@ -83,7 +83,8 @@ namespace engine_server {
             }
 
             case CommandType::SnapshotDepth: {
-                Depth result = order_book.snapshot_depth();
+                int levels = request["levels"];
+                matching_engine::Depth result = order_book.snapshot_depth(levels);
                 nlohmann::json response;
                 response["type"] = "snapshot_depth";
                 response["bids"] = nlohmann::json::array();

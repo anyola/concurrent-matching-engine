@@ -4,9 +4,10 @@
 #include <nlohmann/json.hpp>
 
 #include "server/session.hpp"
+#include "server/protocol.hpp"
 
 namespace engine_server {
-    Session::Session(boost::asio::ip::tcp::socket&& socket_) : socket(std::move(socket_)) {
+    Session::Session(boost::asio::ip::tcp::socket&& socket_, matching_engine::OrderBook& order_book_) : socket(std::move(socket_)), order_book(order_book_) {
         handshake_done = false;
     }
     void Session::start() {
@@ -37,11 +38,14 @@ namespace engine_server {
                         response["type"] = "welcome";
                         response["trader"] = self->trader;
                         self->response = response.dump() + '\n';
+                        self->protocol = std::make_unique<Protocol>(self->order_book, self->trader);
                         self->write();
                     }
                 }
                 else{
-                    self->response = message + '\n';
+                    nlohmann::json request = nlohmann::json::parse(message);
+                    nlohmann::json response = self->protocol->process(request);
+                    self->response = response.dump() + '\n';
                     self->write();
                 }
                 
