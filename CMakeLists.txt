@@ -1,99 +1,24 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(concurrent_matching_engine)
+project(concurrent_matching_engine LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(ENABLE_ASAN "Enable AddressSanitizer" ON)
-option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" ON)
-option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
+find_package(Boost REQUIRED COMPONENTS system)
 
-add_library(order_book_lib
+add_executable(server
+    src/main.cpp
     src/order_book.cpp
+    src/server/tcp_server.cpp
+    src/server/session.cpp
+    src/server/protocol.cpp
 )
 
-target_include_directories(order_book_lib
-    PUBLIC include
+target_include_directories(server PRIVATE
+    include
 )
 
-add_executable(order_book_tests
-    tests/test_matching.cpp
+target_link_libraries(server PRIVATE
+    Boost::system
 )
-
-target_link_libraries(order_book_tests
-    PRIVATE order_book_lib
-)
-
-target_include_directories(order_book_tests
-    PRIVATE third_party
-)
-
-foreach(target order_book_lib order_book_tests)
-    target_compile_options(${target} PRIVATE
-        -Wall
-        -Wextra
-        -Wpedantic
-        -Wconversion
-        -Wshadow
-        -Wold-style-cast
-        -Wnon-virtual-dtor
-    )
-endforeach()
-
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-
-    if(ENABLE_TSAN)
-
-        foreach(target order_book_lib order_book_tests)
-            target_compile_options(${target} PRIVATE
-                -fsanitize=thread
-            )
-
-            target_link_options(${target} PRIVATE
-                -fsanitize=thread
-            )
-        endforeach()
-
-    else()
-
-        if(ENABLE_ASAN)
-            foreach(target order_book_lib order_book_tests)
-                target_compile_options(${target} PRIVATE
-                    -fsanitize=address
-                )
-
-                target_link_options(${target} PRIVATE
-                    -fsanitize=address
-                )
-            endforeach()
-        endif()
-
-        if(ENABLE_UBSAN)
-            foreach(target order_book_lib order_book_tests)
-                target_compile_options(${target} PRIVATE
-                    -fsanitize=undefined
-                )
-
-                target_link_options(${target} PRIVATE
-                    -fsanitize=undefined
-                )
-            endforeach()
-        endif()
-
-    endif()
-
-endif()
-
-find_program(CLANG_TIDY clang-tidy)
-
-if(CLANG_TIDY)
-    set(CMAKE_CXX_CLANG_TIDY ${CLANG_TIDY})
-endif()
-
-if(UNIX)
-    target_link_libraries(order_book_tests PRIVATE pthread)
-endif()
-
-enable_testing()
-
-add_test(NAME order_book_tests COMMAND order_book_tests)
