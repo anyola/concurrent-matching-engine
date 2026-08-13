@@ -20,7 +20,7 @@ namespace engine_server {
             socket,
             buffer,
             '\n',
-            [self](boost::system::error_code ec, std::size_t bytes) {
+            [self](boost::system::error_code ec, std::size_t) {
                 if(ec) {
                     return;
                 }
@@ -74,7 +74,7 @@ namespace engine_server {
         boost::asio::async_write(
             socket,
             boost::asio::buffer(response),
-            [self](boost::system::error_code ec, std::size_t bytes) {
+            [self](boost::system::error_code ec, std::size_t) {
                 if(ec) {
                     return;
                 }
