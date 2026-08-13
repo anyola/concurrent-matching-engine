@@ -7,11 +7,11 @@
 namespace engine_server {
     class TcpServer {
     public:
-        TcpServer(boost::asio::io_context& io_context, unsigned short port, matching_engine::OrderBook& order_book_);
+        TcpServer(boost::asio::io_context& io_context, unsigned short port, matching_engine::Exchange& exchange_);
 
         void start();
     private:
-        matching_engine::OrderBook& order_book;
+        matching_engine::Exchange& exchange;
         boost::asio::ip::tcp::acceptor acceptor;
         void accept();
     };

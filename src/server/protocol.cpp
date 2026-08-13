@@ -17,7 +17,7 @@ namespace engine_server {
         }
     }
 
-    Protocol::Protocol(matching_engine::OrderBook& order_book_, const std::string& trader_) : order_book(order_book_), trader(trader_) {} 
+    Protocol::Protocol(matching_engine::Exchange& exchange_, const std::string& trader_) : exchange(exchange_), trader(trader_) {} 
     
     matching_engine::Side parse_side(const std::string& side) {
         if(side == "buy") {
@@ -44,6 +44,8 @@ namespace engine_server {
 
     nlohmann::json Protocol::process(const nlohmann::json& request) {
         std::string type = request["type"];
+        std::string symbol = request["symbol"];
+        matching_engine::OrderBook& order_book = exchange.get_or_create_book(symbol);
         CommandType command = parse_command_type(type);
         switch(command) {
             case CommandType::PlaceOrder: {

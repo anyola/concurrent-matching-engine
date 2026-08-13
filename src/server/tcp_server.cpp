@@ -6,12 +6,12 @@
 #include "server/session.hpp"
 
 namespace engine_server {
-    TcpServer::TcpServer(boost::asio::io_context& io_context, unsigned short port, matching_engine::OrderBook& order_book_) : acceptor(io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port)), order_book(order_book_) {}
+    TcpServer::TcpServer(boost::asio::io_context& io_context, unsigned short port, matching_engine::Exchange& exchange_) : acceptor(io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port)), exchange(exchange_) {}
     void TcpServer::accept() {
         acceptor.async_accept([this](boost::system::error_code ec, boost::asio::ip::tcp::socket socket) {
             if(!ec) {
                 std::cout << "Client connected\n";
-                auto session = std::make_shared<Session>(std::move(socket), order_book);
+                auto session = std::make_shared<Session>(std::move(socket), exchange);
                 session->start();
             }
             accept();

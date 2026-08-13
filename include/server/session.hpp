@@ -14,7 +14,7 @@ namespace engine_server {
 
     class Session : public std::enable_shared_from_this<Session>{
     public:
-        Session(boost::asio::ip::tcp::socket&& socket_, matching_engine::OrderBook& order_book_);
+        Session(boost::asio::ip::tcp::socket&& socket_, matching_engine::Exchange& exchange_);
 
         void start();
     private:
@@ -25,7 +25,7 @@ namespace engine_server {
         void write();
         bool handshake_done;
         std::string trader;
-        matching_engine::OrderBook& order_book;
+        matching_engine::Exchange& exchange;
         std::unique_ptr<Protocol> protocol;
     };
 }

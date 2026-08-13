@@ -8,7 +8,7 @@
 #include "server/protocol.hpp"
 
 namespace engine_server {
-    Session::Session(boost::asio::ip::tcp::socket&& socket_, matching_engine::OrderBook& order_book_) : socket(std::move(socket_)), order_book(order_book_) {
+    Session::Session(boost::asio::ip::tcp::socket&& socket_, matching_engine::Exchange& exchange_) : socket(std::move(socket_)), exchange(exchange_) {
         handshake_done = false;
     }
     void Session::start() {
@@ -40,7 +40,7 @@ namespace engine_server {
                             response["type"] = "welcome";
                             response["trader"] = self->trader;
                             self->response = response.dump() + '\n';
-                            self->protocol = std::make_unique<Protocol>(self->order_book, self->trader);
+                            self->protocol = std::make_unique<Protocol>(self->exchange, self->trader);
                             self->write();
                         }
                     }

@@ -19,10 +19,10 @@ namespace engine_server {
 
     class Protocol {
     public:
-        Protocol(matching_engine::OrderBook& order_book_, const std::string& trader_);
+        Protocol(matching_engine::Exchange& exchange_, const std::string& trader_);
         nlohmann::json process(const nlohmann::json& request);
     private:
-       matching_engine::OrderBook& order_book;
+        matching_engine::Exchange& exchange;
         std::string trader;
     };
 }
