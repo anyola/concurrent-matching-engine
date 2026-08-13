@@ -43,6 +43,13 @@ namespace engine_server {
                             self->protocol = std::make_unique<Protocol>(self->exchange, self->trader);
                             self->write();
                         }
+                        else {
+                            nlohmann::json response;
+                            response["type"] = "error";
+                            response["message"] = "handshake required";
+                            self->response = response.dump() + '\n';
+                            self->write();
+                        }
                     }
                     else{
                         nlohmann::json request = nlohmann::json::parse(message);
