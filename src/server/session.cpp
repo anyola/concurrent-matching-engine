@@ -36,33 +36,33 @@ namespace engine_server {
                         if(type == "hello") {
                             self->handshake_done = true;
                             self->trader = trader;
-                            nlohmann::json response;
-                            response["type"] = "welcome";
-                            response["trader"] = self->trader;
-                            self->response = response.dump() + '\n';
+                            nlohmann::json response_json;
+                            response_json["type"] = "welcome";
+                            response_json["trader"] = self->trader;
+                            self->response = response_json.dump() + '\n';
                             self->protocol = std::make_unique<Protocol>(self->exchange, self->trader);
                             self->write();
                         }
                         else {
-                            nlohmann::json response;
-                            response["type"] = "error";
-                            response["message"] = "handshake required";
-                            self->response = response.dump() + '\n';
+                            nlohmann::json response_json;
+                            response_json["type"] = "error";
+                            response_json["message"] = "handshake required";
+                            self->response = response_json.dump() + '\n';
                             self->write();
                         }
                     }
                     else{
                         nlohmann::json request = nlohmann::json::parse(message);
-                        nlohmann::json response = self->protocol->process(request);
-                        self->response = response.dump() + '\n';
+                        nlohmann::json response_json = self->protocol->process(request);
+                        self->response = response_json.dump() + '\n';
                         self->write();
                     }
                 }
                 catch(const std::exception& e) {
-                    nlohmann::json response;
-                    response["type"] = "error";
-                    response["message"] = e.what();
-                    self->response = response.dump() + '\n';
+                    nlohmann::json response_json;
+                    response_json["type"] = "error";
+                    response_json["message"] = e.what();
+                    self->response = response_json.dump() + '\n';
                     self->write();
                 }
                 
