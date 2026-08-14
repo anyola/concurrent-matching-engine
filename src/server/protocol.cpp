@@ -87,6 +87,9 @@ namespace engine_server {
 
             case CommandType::SnapshotDepth: {
                 int levels = request.at("levels");
+                if(levels <= 0) {
+                    throw std::runtime_error("invalid levels");
+                }
                 matching_engine::Depth result = order_book.snapshot_depth(levels);
                 nlohmann::json response;
                 response["type"] = "snapshot_depth";
