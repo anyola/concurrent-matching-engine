@@ -11,8 +11,8 @@ namespace engine_server {
 
         void start();
     private:
-        matching_engine::Exchange& exchange;
         boost::asio::ip::tcp::acceptor acceptor;
+        matching_engine::Exchange& exchange;
         void accept();
     };
 }
