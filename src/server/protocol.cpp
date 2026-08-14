@@ -112,7 +112,8 @@ namespace engine_server {
                 response["message"] = "unknown command";
                 return response;
             }
-        }   
+        }  
+        throw std::runtime_error("unreachable"); 
     }
 
 
