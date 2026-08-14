@@ -14,7 +14,7 @@ namespace engine_server {
 
     class Session : public std::enable_shared_from_this<Session>{
     public:
-        Session(boost::asio::ip::tcp::socket&& socket_, matching_engine::Exchange& exchange_);
+        Session(boost::asio::ip::tcp::socket&& socket_, matching_engine::Exchange& exchange_, const std::string& remote_address_, const std::string& local_address_);
 
         void start();
     private:
@@ -27,6 +27,8 @@ namespace engine_server {
         std::string trader;
         matching_engine::Exchange& exchange;
         std::unique_ptr<Protocol> protocol;
+        std::string remote_address;
+        std::string local_address;
     };
 }
 

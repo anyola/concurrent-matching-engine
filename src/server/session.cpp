@@ -8,7 +8,8 @@
 #include "server/protocol.hpp"
 
 namespace engine_server {
-    Session::Session(boost::asio::ip::tcp::socket&& socket_, matching_engine::Exchange& exchange_) : socket(std::move(socket_)), exchange(exchange_) {
+    Session::Session(boost::asio::ip::tcp::socket&& socket_, matching_engine::Exchange& exchange_, const std::string& remote_address_, const std::string& local_address_) : 
+    socket(std::move(socket_)), exchange(exchange_), remote_address(remote_address_), local_address(local_address_) {
         handshake_done = false;
     }
     void Session::start() {

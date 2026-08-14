@@ -10,9 +10,22 @@ namespace engine_server {
     void TcpServer::accept() {
         acceptor.async_accept([this](boost::system::error_code ec, boost::asio::ip::tcp::socket socket) {
             if(!ec) {
-                std::cout << "Client connected\n";
-                auto session = std::make_shared<Session>(std::move(socket), exchange);
-                session->start();
+                try{
+                    std::string remote_address = socket.remote_endpoint().address().to_string()
+                    + ":" + std::to_string(socket.remote_endpoint().port());
+
+                    std::string local_address = socket.local_endpoint().address().to_string()
+                    + ":" + std::to_string(socket.local_endpoint().port());
+
+                    std::cout << "Client connected " << remote_address << " -> " << local_address << '\n';
+
+                    auto session = std::make_shared<Session>(std::move(socket), exchange, remote_address, local_address);
+                    session->start();
+                }
+                catch(const std::exception& e) {
+                    std::cerr << "Connection failed: " << e.what() << '\n';
+                }
+               
             }
             accept();
         });
