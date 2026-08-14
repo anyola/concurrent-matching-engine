@@ -33,8 +33,8 @@ namespace engine_server {
                 try{
                     if(!self->handshake_done) {
                         nlohmann::json request = nlohmann::json::parse(message);
-                        std::string type =  request["type"];
-                        std::string trader = request["trader"];
+                        std::string type =  request.at("type");
+                        std::string trader = request.at("trader");
                         if(type == "hello") {
                             self->handshake_done = true;
                             self->trader = trader;

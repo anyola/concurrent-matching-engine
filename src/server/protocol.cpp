@@ -43,19 +43,19 @@ namespace engine_server {
     }
 
     nlohmann::json Protocol::process(const nlohmann::json& request) {
-        std::string type = request["type"];
-        std::string symbol = request["symbol"];
+        std::string type = request.at("type");
+        std::string symbol = request.at("symbol");
         matching_engine::OrderBook& order_book = exchange.get_or_create_book(symbol);
         CommandType command = parse_command_type(type);
         switch(command) {
             case CommandType::PlaceOrder: {
                 matching_engine::Order order;
                 order.submitted_at = std::chrono::steady_clock::now();
-                order.price = request["price"];
-                order.quantity = request["quantity"];
+                order.price = request.at("price");
+                order.quantity = request.at("quantity");
                 order.trader = trader;
-                order.side = parse_side(request["side"]);
-                order.type = parse_order_type(request["order_type"]);
+                order.side = parse_side(request.at("side"));
+                order.type = parse_order_type(request.at("order_type"));
                 matching_engine::PlaceResult result  = order_book.place_order(order);
                 nlohmann::json response;
                 response["type"] = "order_placed";
@@ -76,7 +76,7 @@ namespace engine_server {
             }
 
             case CommandType::CancelOrder: {
-                int order_id = request["order_id"];
+                int order_id = request.at("order_id");
                 bool result = order_book.cancel_order(order_id);
                 nlohmann::json response;
                 response["type"] = "order_cancelled";
@@ -86,7 +86,7 @@ namespace engine_server {
             }
 
             case CommandType::SnapshotDepth: {
-                int levels = request["levels"];
+                int levels = request.at("levels");
                 matching_engine::Depth result = order_book.snapshot_depth(levels);
                 nlohmann::json response;
                 response["type"] = "snapshot_depth";
