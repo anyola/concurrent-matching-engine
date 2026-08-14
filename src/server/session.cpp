@@ -23,6 +23,7 @@ namespace engine_server {
             '\n',
             [self](boost::system::error_code ec, std::size_t) {
                 if(ec) {
+                    std::cout << "Client disconnected: " << ec.message() << '\n';
                     return;
                 }
                 std::istream stream(&self->buffer);
@@ -77,6 +78,7 @@ namespace engine_server {
             boost::asio::buffer(response),
             [self](boost::system::error_code ec, std::size_t) {
                 if(ec) {
+                    std::cout << "Client disconnected: " << ec.message() << '\n';
                     return;
                 }
                 self->read();
