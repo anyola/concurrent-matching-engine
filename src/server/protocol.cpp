@@ -50,7 +50,7 @@ namespace engine_server {
         switch(command) {
             case CommandType::PlaceOrder: {
                 matching_engine::Order order;
-                order.submitted_at = std::chrono::system_clock::now();
+                order.submitted_at = std::chrono::steady_clock::now();
                 order.price = request["price"];
                 order.quantity = request["quantity"];
                 order.trader = trader;
