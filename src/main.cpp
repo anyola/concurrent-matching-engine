@@ -30,6 +30,8 @@ int main(int argc, char* argv[]) {
     }
     engine_server::TcpServer server(io, port, exchange);
     unsigned short received_port = server.port();
+    std::cout << "listening at " << received_port << '\n';
+    
     std::ofstream port_file(argv[2]);
     if(!port_file) {
         std::cerr << "unable to store port in file " << argv[2] << '\n';
