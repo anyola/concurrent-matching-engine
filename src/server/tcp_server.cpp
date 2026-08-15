@@ -34,4 +34,7 @@ namespace engine_server {
     void TcpServer::start() {
         accept();
     }
+    unsigned short TcpServer::port() const {
+        return acceptor.local_endpoint().port();
+    }
 }

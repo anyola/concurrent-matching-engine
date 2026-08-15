@@ -9,6 +9,7 @@ namespace engine_server {
     public:
         TcpServer(boost::asio::io_context& io_context, unsigned short port, matching_engine::Exchange& exchange_);
 
+        unsigned short port() const;
         void start();
     private:
         boost::asio::ip::tcp::acceptor acceptor;
