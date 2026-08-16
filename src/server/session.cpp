@@ -53,9 +53,15 @@ namespace engine_server {
                     }
                     else{
                         nlohmann::json request = nlohmann::json::parse(message);
-                        nlohmann::json response_json = self->protocol->process(request);
-                        self->response = response_json.dump() + '\n';
-                        self->write();
+                        if(request.at("type") == "subscribe") {
+                            self->start_subscription(request);
+                        }
+                        else{
+                            nlohmann::json response_json = self->protocol->process(request);
+                            self->response = response_json.dump() + '\n';
+                            self->write();
+                        }
+                        
                     }
                 }
                 catch(const std::exception& e) {
@@ -69,17 +75,62 @@ namespace engine_server {
             }
         );
     }
-    void Session::write() {
+
+    void Session::start_subscription(const nlohmann::json& request) {
+        auto self = shared_from_this();
+
+        std::string symbol = request.at("symbol");
+
+        matching_engine::OrderBook& order_book =
+            exchange.get_or_create_book(symbol);
+
+        matching_engine::TradeFeed feed = order_book.subscribe();
+
+        nlohmann::json response_json;
+        response_json["type"] = "subscribed";
+        response_json["symbol"] = symbol;
+
+        self->response = response_json.dump() + '\n';
+        self->write(false);
+
+        std::thread([self, symbol, feed = std::move(feed)]() mutable {
+            while(true) {
+                matching_engine::Trade trade = feed.wait_next_trade();
+
+                boost::asio::post(
+                    self->socket.get_executor(),
+                    [self, symbol, trade]() {
+                        nlohmann::json response_json;
+                        response_json["type"] = "trade";
+                        response_json["symbol"] = symbol;
+                        response_json["maker"] = trade.maker;
+                        response_json["maker_id"] = trade.maker_id;
+                        response_json["taker"] = trade.taker;
+                        response_json["taker_id"] = trade.taker_id;
+                        response_json["price"] = trade.price;
+                        response_json["quantity"] = trade.quantity;
+
+                        self->response = response_json.dump() + '\n';
+                        self->write(false);
+                    }
+                );
+            }
+        }).detach();
+    }
+
+    void Session::write(bool continue_read) {
         auto self = shared_from_this();
         boost::asio::async_write(
             socket,
             boost::asio::buffer(response),
-            [self](boost::system::error_code ec, std::size_t) {
+            [self, continue_read](boost::system::error_code ec, std::size_t) {
                 if(ec) {
                     std::cout << "Disconnected " << self->remote_address << " -> " << self->local_address << " (" << ec.message() << ")\n";
                     return;
                 }
-                self->read();
+                if(continue_read) {
+                    self->read();
+                }   
             }
         );
     }

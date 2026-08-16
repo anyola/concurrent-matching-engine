@@ -22,13 +22,14 @@ namespace engine_server {
         boost::asio::streambuf buffer;
         std::string response;
         void read();
-        void write();
+        void write(bool continue_read = true);
         bool handshake_done;
         std::string trader;
         matching_engine::Exchange& exchange;
         std::unique_ptr<Protocol> protocol;
         std::string remote_address;
         std::string local_address;
+        void start_subscription(const nlohmann::json& request);
     };
 }
 
