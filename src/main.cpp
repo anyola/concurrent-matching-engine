@@ -38,6 +38,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     port_file << received_port << '\n';
+    port_file.flush();
     server.start();
     io.run();
     return 0;
