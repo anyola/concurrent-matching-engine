@@ -1,125 +1,176 @@
 # Concurrent Matching Engine
 
-A thread-safe, in-memory limit order matching engine written in C++20.
-Implements price-time priority matching, partial fills, self-trade prevention,
-market orders, and a blocking trade-feed API for real-time subscriptions —
-all verified race-free under ThreadSanitizer and AddressSanitizer.
+[![CI](https://github.com/anyola/concurrent-matching-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/anyola/concurrent-matching-engine/actions/workflows/ci.yml)
 
-## Overview
+Потокобезопасный движок сопоставления заявок на C++20 с TCP-сервером поверх него. Реализует price-time priority matching, частичные исполнения, self-trade prevention, market-заявки, блокирующую подписку на поток сделок и JSON-протокол по сети. Проект покрыт модульными и интеграционными тестами и проверяется под ThreadSanitizer, AddressSanitizer и UndefinedBehaviorSanitizer.
 
-This project implements the core of a trading exchange: a limit order book
-that matches buy and sell orders concurrently and safely across multiple
-threads. It's built from the ground up around explicit, documented decisions
-about locking granularity, exception safety, and lock-free-friendly data
-structures — the kind of design trade-offs that come up in real order-matching
-systems (exchanges, brokerages, internal trading tools).
+## Обзор
 
-**Core capabilities:**
+Проект реализует ядро биржи: книгу заявок, которая потокобезопасно
+сопоставляет заявки на покупку и продажу, и сетевой сервер, дающий доступ к
+этой книге по TCP через JSON-протокол.
 
-- **Price-time priority matching** — best price first, FIFO within a price level.
-- **Partial fills** — a single incoming order can sweep multiple price levels
-  and match against multiple resting orders.
-- **Self-trade prevention** — an order never matches against the same
-  trader's resting orders; matching skips them and continues with the next
-  eligible counterparty instead of failing the whole operation.
-- **Market and limit orders** — market orders execute against whatever
-  liquidity is available and never rest in the book.
-- **O(1) order cancellation** — a hash index maps order IDs directly to their
-  position in the book, avoiding a linear scan.
-- **Blocking trade feed** — subscribe to a live stream of trades with an
-  atomic "snapshot + subscribe" guarantee, so no trade can be missed between
-  reading current state and starting to listen for new ones.
-- **Multi-symbol exchange** — independent order books per symbol, with
-  per-symbol locking so that trading on one symbol never blocks trading on
-  another.
+**Возможности ядра:**
 
-## Architecture
+- **Price-time priority matching** - лучшая цена исполняется первой, при
+  равной цене - FIFO.
+- **Частичные исполнения** - одна входящая заявка может пройти через
+  несколько уровней цены и исполниться против нескольких заявок в стакане.
+- **Self-trade prevention** - заявка никогда не матчится против заявок того
+  же трейдера; при совпадении трейдера матчинг пропускает контрагента и
+  продолжает поиск следующего, вместо того чтобы прерывать всю операцию.
+- **Лимитные и рыночные заявки** - market-заявки исполняются по любой
+  доступной ликвидности и никогда не остаются в стакане.
+- **Отмена заявки за O(1)** - хеш-индекс напрямую отображает id заявки на
+  её позицию в стакане, без линейного перебора.
+- **Блокирующая подписка на сделки** - атомарная гарантия "снимок состояния
+  + подписка": ни одна сделка не может потеряться в промежутке между
+  чтением текущего состояния и началом прослушивания новых событий.
+- **Множество независимых символов** - отдельная книга заявок на каждый
+  символ, с блокировкой на уровне символа, так что торговля одним символом
+  никогда не блокирует торговлю другим.
+
+**Возможности сервера:**
+
+- TCP-сервер на `boost::asio` (асинхронный, однопоточный `io_context`),
+  JSON-протокол (NDJSON - одна JSON-команда на строку).
+- Хендшейк с идентификацией трейдера, команды `place_order`, `cancel_order`,
+  `snapshot_depth`, `subscribe` (потоковая выдача сделок в реальном времени).
+- Каждая команда, включая `cancel_order`, обязана содержать `symbol` - id
+  заявок уникальны только в пределах одного `OrderBook`, поэтому без символа
+  сервер не может понять, в какой книге искать заявку.
+- Порт может быть указан как `0` - ОС сама выбирает свободный порт, который
+  сохраняется в файл для автоматического обнаружения внешними инструментами.
+- Сервер не падает от некорректного ввода клиента - ошибка одного клиента не влияет на остальных.
+
+## Архитектура
 
 ```
-Exchange
-  └─ owns one OrderBook per symbol, created lazily and lock-protected
-       OrderBook (one per symbol)
-         ├─ bid/ask price levels: std::map<price, std::list<Order>>
-         ├─ order_id -> location index: std::unordered_map (O(1) cancel)
-         ├─ single std::mutex guarding all book state
-         ├─ append-only trade log + condition_variable
-         └─ TradeFeed: a per-subscriber cursor into the trade log,
-            blocks on the condition_variable until new trades arrive
+main
+  └─ TcpServer (boost::asio::io_context, однопоточный)
+       └─ на каждое соединение - Session (async read/write, JSON-протокол)
+            └─ Protocol (перевод JSON-команд в вызовы Exchange/OrderBook)
+                 └─ Exchange
+                      └─ владеет одним OrderBook на символ,
+                         создаваемым лениво и потокобезопасно
+                           OrderBook (один на символ)
+                             ├─ уровни цены: std::map<price, std::list<Order>>
+                             ├─ индекс order_id -> позиция: unordered_map (O(1) отмена)
+                             ├─ единый std::mutex на всё состояние книги
+                             ├─ неубывающий журнал сделок + condition_variable
+                             └─ TradeFeed: курсор подписчика в журнале сделок,
+                                блокируется на condition_variable до новой сделки
 ```
 
-Each `OrderBook` is independently locked, so concurrent operations on
-different symbols never contend with each other — only operations on the
-*same* symbol serialize. This was a deliberate design choice over a single
-global lock, made specifically to allow the engine to scale across symbols.
+Каждый `OrderBook` блокируется независимо, поэтому конкурентные операции с
+**разными** символами никогда не конкурируют друг с другом - сериализуются
+только операции с одним и тем же символом. Это осознанный выбор в пользу
+блокировки на уровне символа вместо одного глобального лока - сделан именно
+для того, чтобы движок масштабировался по числу символов.
 
-## Key design decisions
+## Ключевые архитектурные решения
 
-A few choices here are intentional trade-offs, not oversights — documented
-here so they read as decisions rather than gaps:
+- **Self-trade prevention пропускает, а не отклоняет.** Если лучший
+  доступный контрагент принадлежит тому же трейдеру, матчинг пропускает его
+  и продолжает искать дальше - без исключения и без отката частично
+  выполненной работы. Это сохраняет exception safety: как только матчинг
+  начал расходовать ликвидность, ничего после этой точки не может упасть
+  с ошибкой.
+- **Остаток market-заявки отбрасывается, а не встаёт в очередь.** Если
+  market-заявка не может исполниться полностью, неисполненный остаток
+  сообщается через `PlaceResult::remaining_quantity`, но никогда не
+  добавляется в стакан.
+- **Журнал сделок растёт без ограничения** в течение жизни процесса -
+  приемлемо для процесса с конечным временем жизни, для
+  долгоживущего сервиса потребовалась бы ротация журнала или отдельное
+  персистентное хранилище истории.
+- **Id заявок назначает движок, а не вызывающий код**, через атомарный
+  счётчик.
+- **JSON-протокол (NDJSON) вместо бинарного** - не требует написания парсера вручную, похож на протоколы реальных бирж (Binance, Coinbase и т.п.). 
+- **Один поток на клиента через асинхронный `io_context`**, а не через
+  блокирующий `tcp::iostream` - позволяет одному серверному процессу
+  эффективно обслуживать много соединений без потока на клиента.
 
-- **Self-trade prevention skips, it doesn't reject.** If the best available
-  counterparty belongs to the same trader, the matcher skips it and keeps
-  looking — it does not throw and does not roll back partial progress. This
-  keeps the operation exception-safe: once matching starts consuming
-  liquidity, nothing after that point can fail.
-- **Market order remainders are dropped, not queued.** If a market order
-  can't be fully filled, the unfilled quantity is reported back via
-  `PlaceResult::remaining_quantity` but is never added to the book — market
-  orders are never resting orders by definition.
-- **The trade log grows unbounded for the lifetime of the process.** Fine
-  for a process with a bounded lifetime (tests, demos); a long-running
-  service would need log rotation or a persistent store for history that
-  outgrows memory.
-- **Order IDs are assigned by the engine, not the caller**, via an atomic
-  counter — this removes an entire class of bugs where two orders could
-  collide on the same ID and silently corrupt the index.
+## Модель конкурентности
 
-## Concurrency model
+**Уровень движка:**
+- У каждого `OrderBook` один `std::mutex`, защищающий уровни цены, индекс
+  заявок и журнал сделок. Все публичные методы (`place_order`,
+  `cancel_order`, `snapshot_depth`, `subscribe`) держат этот лок на всё
+  время выполнения.
+- `subscribe()` и `snapshot_depth()` атомарны относительно торговой
+  активности: подписка гарантированно видит каждую сделку с момента своего
+  создания, без возможности потерять сделку в промежутке между чтением
+  состояния и началом прослушивания.
+- `TradeFeed::wait_next_trade()` блокируется на `condition_variable`
+  (никогда не активное ожидание) до появления сделки, которую подписчик ещё
+  не видел. Несколько независимых подписчиков могут одновременно ждать на
+  одной книге - каждый со своей позицией чтения в журнале.
+- `Exchange::get_or_create_book()` защищён отдельным мьютексом, независимым
+  от мьютексов отдельных `OrderBook` - поиск или создание книги для одного
+  символа никогда не блокирует торговлю другим.
+- Никакого блокирующего ввода-вывода и никакой синхронизации через
+  `sleep_for` нигде в самом движке.
 
-- Each `OrderBook` has a single `std::mutex` guarding its price levels, its
-  order index, and its trade log. All public methods (`place_order`,
-  `cancel_order`, `snapshot_depth`, `subscribe`) take this lock for their
-  full duration.
-- `subscribe()` and `snapshot_depth()` are atomic with respect to trading
-  activity: a subscription is guaranteed to observe every trade from the
-  moment it was created onward, with no possibility of a trade slipping
-  through the gap between reading state and starting to listen.
-- `TradeFeed::wait_next_trade()` blocks on a `condition_variable` (never a
-  busy-wait) until a trade the subscriber hasn't seen yet is available.
-  Multiple independent subscribers can wait on the same book simultaneously;
-  each tracks its own read position into the trade log.
-- `Exchange::get_or_create_book()` is guarded by its own separate mutex,
-  independent from any individual `OrderBook`'s mutex — so looking up or
-  creating a book for one symbol never blocks trading on another.
-- No blocking I/O, and no `sleep_for`-based synchronization, anywhere in the
-  engine itself.
+**Уровень сервера:**
+- `io_context` однопоточный - все обработчики чтения/записи для всех
+  клиентов выполняются по очереди в одном потоке, что делает работу с
+  общим состоянием сессии (`Session::response`) безопасной без
+  дополнительных блокировок.
+- Команда `subscribe` - особый случай: `TradeFeed::wait_next_trade()`
+  блокирующий, а обработчики `io_context` не должны блокироваться (иначе
+  весь сервер замирает для всех клиентов сразу). При `subscribe`
+  запускается отдельный `std::thread`, каждая полученная сделка передаётся обратно в поток `io_context` через `boost::asio::post(...)`.
+- После `subscribe` сессия больше не читает новые команды от этого клиента: нельзя одновременно блокирующе ждать и новую команду, и новую сделку без второго потока, а раз второй поток уже занят под сделки, чтение команд для этой сессии закрывается.
 
-## Tooling and verification
+## Протокол (NDJSON - одна JSON-команда на строку, `\n`-terminated)
 
-**ThreadSanitizer** — used to validate multi-threaded code paths and detect
-potential data races, including concurrent order placement, concurrent symbol
-creation, and trade-feed subscription stress scenarios.
+```jsonc
+// Хендшейк:
+> {"type":"hello","trader":"alice"}
+< {"type":"welcome","trader":"alice"}
 
-**AddressSanitizer + UndefinedBehaviorSanitizer** — used to detect memory
-safety issues and undefined behavior such as invalid memory access and
-lifetime errors.
+// Заявка:
+> {"type":"place_order","symbol":"AAPL","side":"buy","order_type":"limit","price":10050,"quantity":100}
+< {"type":"order_placed","order_id":42,"trades":[...],"remaining_quantity":30}
 
-**clang-tidy** — static analysis with checks from:
-`bugprone-*`, `cppcoreguidelines-*`, `performance-*`,
-`modernize-*`, and `clang-analyzer-*`.
+// Отмена (symbol обязателен - id заявок уникальны только в пределах одного OrderBook):
+> {"type":"cancel_order","symbol":"AAPL","order_id":42}
+< {"type":"order_cancelled","order_id":42,"success":true}
 
-**Compiler warnings enabled:**
+// Глубина рынка:
+> {"type":"snapshot_depth","symbol":"AAPL","levels":5}
+< {"type":"snapshot_depth","bids":[...],"asks":[...]}
+
+// Подписка на поток сделок (сессия после этого не принимает новых команд):
+> {"type":"subscribe","symbol":"AAPL"}
+< {"type":"subscribed","symbol":"AAPL"}
+< {"type":"trade","symbol":"AAPL","maker":"bob","taker":"alice","price":10050,"quantity":50}
+< ... поток продолжается по мере появления сделок ...
+```
+
+Любая ошибка (невалидный JSON, неизвестная команда, бизнес-ошибка движка
+вроде `invalid_price_error`) возвращается как
+`{"type":"error","message":"..."}`, соединение при этом не разрывается.
+
+## Инструменты и верификация
+
+**ThreadSanitizer** 
+**AddressSanitizer + UndefinedBehaviorSanitizer**
+
+**clang-tidy** `bugprone-*`, `cppcoreguidelines-*`, `performance-*`, `clang-analyzer-*`.
+
+**Строгие флаги компиляции:**
 ```text
--Wall
--Wextra
--Wpedantic
--Wconversion
--Wshadow
--Wold-style-cast
--Wnon-virtual-dtor
+-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion
 ```
 
-## Building
+**Живое end-to-end тестирование сервера:** отдельный набор интеграционных
+тестов (`tests/server_tests.cpp`, doctest + `boost::asio` как
+TCP-клиент) поднимает настоящий `Exchange`+`TcpServer` в фоновом потоке и
+подключается к нему реальными сокетами.
+
+## Сборка
 
 ```bash
 cmake -B build
@@ -127,30 +178,52 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-## Testing
+## Тестирование
 
-The test suite covers single- and multi-threaded:
+### Модульные тесты ядра
 
-- Core matching: full fills, partial fills, multi-level sweeps, price-time
-  priority ordering.
-- Self-trade prevention across several scenarios (only own liquidity
-  available, own orders interleaved with others', own liquidity spread
-  across multiple price levels).
-- Market orders: full execution, partial execution with dropped remainder,
-  and zero available liquidity.
-- Input validation and the exception hierarchy.
-- Order cancellation, including cancelling partially-filled and
-  already-fully-executed orders.
-- Order book depth aggregation.
-- `TradeFeed`: immediate delivery, genuine blocking across threads
-  (verified via `std::future`/`std::promise`, not timing-based sleeps), and
-  a dedicated stress test for the atomicity of `subscribe()`.
-- `Exchange`: identity of concurrently-created books for the same symbol,
-  and independence between different symbols.
-- A concurrency invariant test: under sustained multi-threaded load, total
-  submitted volume always equals `2 × executed volume + resting volume` —
-  the factor of two accounts for the fact that every trade consumes
-  quantity from both the taker and the maker side.
+Покрывают, в одно- и многопоточном режиме:
+
+- Матчинг: полные исполнения, частичные, свипы нескольких уровней цены,
+  соблюдение price-time priority.
+- Self-trade prevention в нескольких сценариях (только своя ликвидность,
+  своя ликвидность вперемешку с чужой, своя ликвидность на нескольких
+  уровнях цены).
+- Market-заявки: полное исполнение, частичное с отброшенным остатком,
+  отсутствие ликвидности.
+- Валидация ввода и иерархия исключений.
+- Отмена заявки, включая отмену частично исполненной и уже полностью
+  исполненной заявки.
+- Агрегация глубины стакана.
+- `TradeFeed`: мгновенная выдача, настоящая блокировка между потоками
+  (проверено через `std::future`/`std::promise`, не через `sleep`), отдельный
+  стресс-тест на атомарность `subscribe()`.
+- `Exchange`: идентичность конкурентно созданных книг для одного символа,
+  независимость разных символов.
+- Инвариантный тест конкурентности: под устойчивой многопоточной нагрузкой
+  суммарный поданный объём всегда равен `2 × исполненный объём + остаток в
+  стакане` - множитель 2 объясняется тем, что каждая сделка расходует
+  объём и у taker'а, и у maker'а одновременно.
+
+### Интеграционные тесты сервера (`tests/server_tests.cpp`)
+
+Поднимают настоящий `Exchange`+`TcpServer` в фоновом потоке и подключаются к
+нему реальными TCP-сокетами (`boost::asio`-клиент в том же бинарнике,
+doctest):
+
+- Хендшейк (успешный и отказ без `hello`).
+- `place_order` матчинг через протокол.
+- `cancel_order` (успех, повторная отмена).
+- `snapshot_depth`, включая валидацию `levels`.
+- Независимость символов по сети.
+- Три теста на невалидный ввод (malformed JSON,
+  отсутствующее обязательное поле, невалидное значение поля) - каждый
+  проверяет не только корректный ответ-ошибку, но и то, что сервер отвечает
+  **следующему** клиенту, то есть процесс не упал целиком.
+- `subscribe`: подтверждение подписки + настоящая блокирующая доставка
+  сделки в реальном времени между независимыми соединениями.
+- Регрессионный стресс-тест: проверяет, что поток сообщений подписчика не портится при повторных вызовах записи в сокет из фонового потока.
+
 
 ## Project structure
 
@@ -158,26 +231,37 @@ The test suite covers single- and multi-threaded:
 concurrent-matching-engine/
 ├── CMakeLists.txt
 ├── include/
-│   ├── errors.hpp       # exception hierarchy
-│   ├── order.hpp        # plain data types: Order, Trade, Depth, PlaceResult
-│   └── order_book.hpp   # OrderBook, TradeFeed, Exchange
+│   ├── errors.hpp             # иерархия исключений
+│   ├── order.hpp               # структуры: Order, Trade, Depth, PlaceResult
+│   ├── order_book.hpp          # OrderBook, TradeFeed, Exchange
+│   └── server/
+│       ├── protocol.hpp        # разбор JSON-команд, вызов Exchange/OrderBook
+│       ├── session.hpp         # одно TCP-соединение, асинхронный I/O
+│       └── tcp_server.hpp      # accept-цикл
 ├── src/
-│   └── order_book.cpp
+│   ├── order_book.cpp
+│   ├── main.cpp                 # точка входа сервера, argv/port-file
+│   └── server/
+│       ├── protocol.cpp
+│       ├── session.cpp
+│       └── tcp_server.cpp
 ├── tests/
-│   └── test_matching.cpp
+│   ├── test_matching.cpp             # модульные тесты ядра
+│   └── server_tests.cpp              # тесты сервера (реальные сокеты)
 └── third_party/
-    └── doctest.h
+    ├── doctest.h
 ```
 
-## Known limitations
+## Известные ограничения
 
-- `int` price/quantity fields instead of fixed-point arithmetic.
-- Floating-point arithmetic is intentionally avoided; production systems
-  would typically use fixed-point integer representation for prices and
-  quantities to guarantee exact financial calculations.
-- Unbounded trade log growth over process lifetime.
-- No persistence — the book exists only in memory for the process lifetime.
-- `std::mutex` rather than `std::shared_mutex`: since `snapshot_depth` is
-  read-only and likely called far more often than `place_order`, a
-  reader/writer lock is a plausible follow-up optimization, ideally
-  validated with a before/after throughput benchmark.
+- `int` для цены/количества вместо fixed-point арифметики - намеренное
+  упрощение.
+- Журнал сделок растёт без ограничения в течение жизни процесса.
+- Нет персистентности - книга существует только в памяти процесса.
+- **Однопоточный `io_context`** - все клиенты сервера обслуживаются в одном
+  потоке.
+- **Фоновый поток `subscribe` не получает новых сделок для своего символа -
+  он мешает штатному завершению всего процесса, если клиент отключается.
+  ** При нормальном выходе из `main()` разрушение `OrderBook`/`condition_variable`, пока поток всё ещё
+  ждёт на ней, - неопределённое поведение, на практике проявляющееся как
+  зависание процесса при остановке. Тестовый бинарник обходит это через `std::_Exit()`; реальный сервер так сделать не может (нужно уметь штатно завершаться, например по SIGTERM).
